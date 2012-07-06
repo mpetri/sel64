@@ -21,12 +21,10 @@ using namespace std;
 #define MSBS_STEP_8 ( 0x80ULL * ONES_STEP_8 )
 #define MSBS_STEP_16 ( 0x8000ULL * ONES_STEP_16 )
 #define INCR_STEP_8 ( 0x80ULL << 56 | 0x40ULL << 48 | 0x20ULL << 40 | 0x10ULL << 32 | 0x8ULL << 24 | 0x4ULL << 16 | 0x2ULL << 8 | 0x1 )
-
 #define LEQ_STEP_8(x,y) ( ( ( ( ( (y) | MSBS_STEP_8 ) - ( (x) & ~MSBS_STEP_8 ) ) ^ (x) ^ (y) ) & MSBS_STEP_8 ) >> 7 )
-
 #define ZCOMPARE_STEP_8(x) ( ( ( x | ( ( x | MSBS_STEP_8 ) - ONES_STEP_8 ) ) & MSBS_STEP_8 ) >> 7 )
 
-
+/* the overflow table. this table is used to overflow the commulative byte sums for a specfic i */
 const uint64_t PsOverflow1[] = {
     0x8080808080808080ULL,
     0x7f7f7f7f7f7f7f7fULL,
@@ -95,6 +93,7 @@ const uint64_t PsOverflow1[] = {
     0x4040404040404040ULL
 };
 
+/* select table for the last byte */
 const uint8_t Select2561[] = {
     0,0,1,0,2,0,1,0,3,0,1,0,2,0,1,0,
     4,0,1,0,2,0,1,0,3,0,1,0,2,0,1,0,
@@ -233,7 +232,7 @@ const uint8_t Select2561[] = {
     0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,7
 };
 
-
+/* the currently fastest sse enhanced select */
 inline uint32_t select64_1(uint64_t x, uint32_t i)
 {
     uint64_t s = x, b;
@@ -248,6 +247,7 @@ inline uint32_t select64_1(uint64_t x, uint32_t i)
     return (byte_nr << 3) + Select2561[((i-1) << 8) + ((x>>(byte_nr<<3))&0xFFULL) ];
 }
 
+/* a different sse enhanced select */
 inline uint32_t select64_3(uint64_t x, uint32_t i)
 {
     uint64_t s=x,n,b;
@@ -266,7 +266,7 @@ inline uint32_t select64_3(uint64_t x, uint32_t i)
     return (byte_nr << 3) + Select2561[((i-1) << 8) + ((x>>(byte_nr<<3))&0xFFULL) ];
 }
 
-
+/* th edefault non sse version of sdsl */
 inline uint32_t select64_2(uint64_t x, uint32_t i)
 {
     /*register*/ uint64_t s = x, b;  // s = sum
@@ -301,7 +301,7 @@ inline uint32_t select64_2(uint64_t x, uint32_t i)
     return 0;
 }
 
-
+/* a sse version */
 inline uint32_t
 select64_4(uint64_t x,uint32_t i)
 {
@@ -335,7 +335,7 @@ select64_4(uint64_t x,uint32_t i)
     return (pos<<3) + Select2561[(x>>(pos<<3)&0xFFULL) + ((i-1-csum_8[7+pos])<<8)  ];
 }
 
-
+/* taken from Sebastiano Vigna for comparison */
 inline int select64_v(const uint64_t x, const int k)     /* k < 128; returns 72 if there are less than k ones in x. */
 {
 
@@ -384,6 +384,14 @@ int main(int argc,char** argv)
     size_t pcnt = bit_magic::b1Cnt(0x123456789ABCDEF);
     for (i=1; i<pcnt; i++) {
         fprintf(stdout,"%lX,%zu select64_1() = %u bit_magic::i1BP() = %u\n",0x123456789ABCDEF,i,
+                select64_3(0x123456789ABCDEF,i),bit_magic::i1BP(0x123456789ABCDEF,i));
+        fprintf(stdout,"%lX,%zu select64_2() = %u bit_magic::i1BP() = %u\n",0x123456789ABCDEF,i,
+                select64_3(0x123456789ABCDEF,i),bit_magic::i1BP(0x123456789ABCDEF,i));
+        fprintf(stdout,"%lX,%zu select64_3() = %u bit_magic::i1BP() = %u\n",0x123456789ABCDEF,i,
+                select64_3(0x123456789ABCDEF,i),bit_magic::i1BP(0x123456789ABCDEF,i));
+        fprintf(stdout,"%lX,%zu select64_4() = %u bit_magic::i1BP() = %u\n",0x123456789ABCDEF,i,
+                select64_3(0x123456789ABCDEF,i),bit_magic::i1BP(0x123456789ABCDEF,i));
+        fprintf(stdout,"%lX,%zu select64_v() = %u bit_magic::i1BP() = %u\n",0x123456789ABCDEF,i,
                 select64_3(0x123456789ABCDEF,i),bit_magic::i1BP(0x123456789ABCDEF,i));
     }
 
