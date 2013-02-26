@@ -1,11 +1,11 @@
 
-all: clean sel64 sel64dbg
+all: clean sel64 run
 
 sel64:
-	g++ -O3 -I ~/include -L ~/lib/ -msse4.2 -o sel64 sel64.c -l sdsl
+	g++ -O3 -msse4.2 -o sel64 sel64.c 
 
-sel64dbg:
-	g++ -g -I ~/include -L ~/lib/ -msse4.2 -o sel64dbg sel64.c -l sdsl
+run:
+	./sel64
 
 clean:
-	rm -f sel64 sel64dbg
+	rm -f sel64

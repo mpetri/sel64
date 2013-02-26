@@ -1,28 +1,111 @@
-
+#include <time.h>
+#include <sys/time.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <sys/resource.h>
 
-//#include <wmmintrin.h>
 #include <nmmintrin.h>
+#include <vector>
+#include <iostream>
 
-#include <sdsl/bitmagic.hpp>
-#include <sdsl/util.hpp>
-#include <sdsl/testutils.hpp>
-#include <sdsl/int_vector.hpp>
-
-using namespace sdsl;
 using namespace std;
+
+class stop_watch
+{
+    private:
+        rusage m_ruse1, m_ruse2;
+        timeval m_timeOfDay1, m_timeOfDay2;
+        static timeval m_first_t;
+        static rusage m_first_r;
+    public:
+
+        stop_watch() : m_ruse1(), m_ruse2(), m_timeOfDay1(), m_timeOfDay2() {
+            timeval t;
+            t.tv_sec = 0; t.tv_usec = 0;
+            m_ruse1.ru_utime = t; m_ruse1.ru_stime = t; // init m_ruse1
+            m_ruse2.ru_utime = t; m_ruse2.ru_stime = t; // init m_ruse2
+            m_timeOfDay1 = t; m_timeOfDay2 = t;
+            if (m_first_t.tv_sec == 0) {
+                gettimeofday(&m_first_t, 0);
+            }
+            if (m_first_r.ru_utime.tv_sec == 0 and m_first_r.ru_utime.tv_usec ==0) {
+                getrusage(RUSAGE_SELF, &m_first_r);
+            }
+        }
+        //! Start the stopwatch.
+        /*! \sa stop
+         */
+        void start() {
+            gettimeofday(&m_timeOfDay1, 0);
+            getrusage(RUSAGE_SELF, &m_ruse1);
+        };
+
+        //! Stop the stopwatch.
+        /*! \sa start
+         */
+        void stop() {
+            getrusage(RUSAGE_SELF, &m_ruse2);
+            gettimeofday(&m_timeOfDay2, 0);
+        };
+
+        //! Get the elapsed user time in milliseconds between start and stop.
+        /*! \sa start, stop, get_real_time, get_sys_time
+         */
+        double get_user_time() {
+            timeval t1, t2;
+            t1 = m_ruse1.ru_utime;
+            t2 = m_ruse2.ru_utime;
+            return ((double)(t2.tv_sec*1000000 + t2.tv_usec - (t1.tv_sec*1000000 + t1.tv_usec)))/1000.0;
+        };
+
+        //! Get the elapsed system time in milliseconds between start and stop.
+        /*! \sa start, stop, get_real_time, get_user_time
+         */
+        double get_sys_time() {
+            timeval t1, t2;
+            t1 = m_ruse1.ru_stime;
+            t2 = m_ruse2.ru_stime;
+            return ((double)(t2.tv_sec*1000000 + t2.tv_usec - (t1.tv_sec*1000000 + t1.tv_usec)))/1000.0;
+        };
+
+        //! Get the elapsed real time in milliseconds between start and stop.
+        /*! \sa start, stop, get_sys_time, get_user_time
+         */
+        double get_real_time() {
+            double result = ((double)((m_timeOfDay2.tv_sec*1000000 + m_timeOfDay2.tv_usec)-(m_timeOfDay1.tv_sec*1000000 + m_timeOfDay1.tv_usec)))/1000.0;
+            if (result < get_sys_time() + get_user_time())
+                return get_sys_time()+get_user_time();
+            return result;
+        };
+};
+
+timeval stop_watch::m_first_t = {0,0};
+rusage stop_watch::m_first_r = {{0,0},{0,0}};
 
 #define ONES_STEP_4 ( 0x1111111111111111ULL )
 #define ONES_STEP_8 ( 0x0101010101010101ULL )
+#define ONES_STEP_9 ( 1ULL << 0 | 1ULL << 9 | 1ULL << 18 | 1ULL << 27 | 1ULL << 36 | 1ULL << 45 | 1ULL << 54 )
 #define ONES_STEP_16 ( 1ULL << 0 | 1ULL << 16 | 1ULL << 32 | 1ULL << 48 )
 #define MSBS_STEP_4 ( 0x8ULL * ONES_STEP_4 )
 #define MSBS_STEP_8 ( 0x80ULL * ONES_STEP_8 )
+#define MSBS_STEP_9 ( 0x100ULL * ONES_STEP_9 )
 #define MSBS_STEP_16 ( 0x8000ULL * ONES_STEP_16 )
 #define INCR_STEP_8 ( 0x80ULL << 56 | 0x40ULL << 48 | 0x20ULL << 40 | 0x10ULL << 32 | 0x8ULL << 24 | 0x4ULL << 16 | 0x2ULL << 8 | 0x1 )
+
+#define ONES_STEP_32 ( 0x0000000100000001ULL )
+#define MSBS_STEP_32 ( 0x8000000080000000ULL )
+
+#define COMPARE_STEP_8(x,y) ( ( ( ( ( (x) | MSBS_STEP_8 ) - ( (y) & ~MSBS_STEP_8 ) ) ^ (x) ^ ~(y) ) & MSBS_STEP_8 ) >> 7 )
 #define LEQ_STEP_8(x,y) ( ( ( ( ( (y) | MSBS_STEP_8 ) - ( (x) & ~MSBS_STEP_8 ) ) ^ (x) ^ (y) ) & MSBS_STEP_8 ) >> 7 )
+
+#define UCOMPARE_STEP_9(x,y) ( ( ( ( ( ( (x) | MSBS_STEP_9 ) - ( (y) & ~MSBS_STEP_9 ) ) | ( x ^ y ) ) ^ ( x | ~y ) ) & MSBS_STEP_9 ) >> 8 )
+#define UCOMPARE_STEP_16(x,y) ( ( ( ( ( ( (x) | MSBS_STEP_16 ) - ( (y) & ~MSBS_STEP_16 ) ) | ( x ^ y ) ) ^ ( x | ~y ) ) & MSBS_STEP_16 ) >> 15 )
+#define ULEQ_STEP_9(x,y) ( ( ( ( ( ( (y) | MSBS_STEP_9 ) - ( (x) & ~MSBS_STEP_9 ) ) | ( x ^ y ) ) ^ ( x & ~y ) ) & MSBS_STEP_9 ) >> 8 )
+#define ULEQ_STEP_16(x,y) ( ( ( ( ( ( (y) | MSBS_STEP_16 ) - ( (x) & ~MSBS_STEP_16 ) ) | ( x ^ y ) ) ^ ( x & ~y ) ) & MSBS_STEP_16 ) >> 15 )
 #define ZCOMPARE_STEP_8(x) ( ( ( x | ( ( x | MSBS_STEP_8 ) - ONES_STEP_8 ) ) & MSBS_STEP_8 ) >> 7 )
+
+#define EASY_LEQ_STEP_8(x,y) ( ( ( ( ( (y) | MSBS_STEP_8 ) - ( x ) ) ) & MSBS_STEP_8 ) >> 7 )
 
 /* the overflow table. this table is used to overflow the commulative byte sums for a specfic i */
 const uint64_t PsOverflow1[] = {
@@ -94,7 +177,7 @@ const uint64_t PsOverflow1[] = {
 };
 
 /* select table for the last byte */
-const uint8_t Select2561[] = {
+const uint8_t Select256[] = {
     0,0,1,0,2,0,1,0,3,0,1,0,2,0,1,0,
     4,0,1,0,2,0,1,0,3,0,1,0,2,0,1,0,
     5,0,1,0,2,0,1,0,3,0,1,0,2,0,1,0,
@@ -233,7 +316,7 @@ const uint8_t Select2561[] = {
 };
 
 /* the currently fastest sse enhanced select */
-inline uint32_t select64_1(uint64_t x, uint32_t i)
+inline uint32_t select64_sdsl(uint64_t x, uint32_t i)
 {
     uint64_t s = x, b;
     s = s-((s>>1) & 0x5555555555555555ULL);
@@ -244,30 +327,12 @@ inline uint32_t select64_1(uint64_t x, uint32_t i)
     int  byte_nr = __builtin_ctzll(b) >> 3;
     s <<= 8;
     i -= (s >> (byte_nr<<3)) & 0xFFULL;
-    return (byte_nr << 3) + Select2561[((i-1) << 8) + ((x>>(byte_nr<<3))&0xFFULL) ];
+    return (byte_nr << 3) + Select256[((i-1) << 8) + ((x>>(byte_nr<<3))&0xFFULL) ];
 }
 
-/* a different sse enhanced select */
-inline uint32_t select64_3(uint64_t x, uint32_t i)
-{
-    uint64_t s=x,n,b;
-    n = (s>>1) & 0x7777777777777777ULL;
-    s = s-n;
-    n = (n>>1) & 0x7777777777777777ULL;
-    s = s-n;
-    n = (n>>1) & 0x7777777777777777ULL;
-    s = s-n;
-    s = (s + (s >> 4)) & 0x0F0F0F0F0F0F0F0FULL;
-    s = 0x0101010101010101ULL*s;
-    b = (s+PsOverflow1[i]) & 0x8080808080808080ULL;
-    int  byte_nr = __builtin_ctzll(b) >> 3;
-    s <<= 8;
-    i -= (s >> (byte_nr<<3)) & 0xFFULL;
-    return (byte_nr << 3) + Select2561[((i-1) << 8) + ((x>>(byte_nr<<3))&0xFFULL) ];
-}
 
-/* th edefault non sse version of sdsl */
-inline uint32_t select64_2(uint64_t x, uint32_t i)
+/* the default non sse version of sdsl */
+inline uint32_t select64_sdslold(uint64_t x, uint32_t i)
 {
     /*register*/ uint64_t s = x, b;  // s = sum
     s = s-((s>>1) & 0x5555555555555555ULL);
@@ -279,31 +344,31 @@ inline uint32_t select64_2(uint64_t x, uint32_t i)
     if (b&0x0000000080000000ULL) // byte <=3
         if (b&0x0000000000008000ULL) //byte <= 1
             if (b&0x0000000000000080ULL)
-                return    Select2561[(x&0xFFULL) + i];
+                return    Select256[(x&0xFFULL) + i];
             else
-                return 8 +Select2561[(((x>>8)&0xFFULL)  + i - ((s&0xFFULL)<<8))&0x7FFULL];//byte 1;
+                return 8 +Select256[(((x>>8)&0xFFULL)  + i - ((s&0xFFULL)<<8))&0x7FFULL];//byte 1;
         else//byte >1
             if (b&0x0000000000800000ULL) //byte <=2
-                return 16+Select2561[(((x>>16)&0xFFULL) + i - (s&0xFF00ULL))&0x7FFULL];//byte 2;
+                return 16+Select256[(((x>>16)&0xFFULL) + i - (s&0xFF00ULL))&0x7FFULL];//byte 2;
             else
-                return 24+Select2561[(((x>>24)&0xFFULL) + i - ((s>>8)&0xFF00ULL))&0x7FFULL];//byte 3;
+                return 24+Select256[(((x>>24)&0xFFULL) + i - ((s>>8)&0xFF00ULL))&0x7FFULL];//byte 3;
     else//  byte > 3
         if (b&0x0000800000000000ULL) // byte <=5
             if (b&0x0000008000000000ULL) //byte <=4
-                return 32+Select2561[(((x>>32)&0xFFULL) + i - ((s>>16)&0xFF00ULL))&0x7FFULL];//byte 4;
+                return 32+Select256[(((x>>32)&0xFFULL) + i - ((s>>16)&0xFF00ULL))&0x7FFULL];//byte 4;
             else
-                return 40+Select2561[(((x>>40)&0xFFULL) + i - ((s>>24)&0xFF00ULL))&0x7FFULL];//byte 5;
+                return 40+Select256[(((x>>40)&0xFFULL) + i - ((s>>24)&0xFF00ULL))&0x7FFULL];//byte 5;
         else// byte >5
             if (b&0x0080000000000000ULL) //byte<=6
-                return 48+Select2561[(((x>>48)&0xFFULL) + i - ((s>>32)&0xFF00ULL))&0x7FFULL];//byte 6;
+                return 48+Select256[(((x>>48)&0xFFULL) + i - ((s>>32)&0xFF00ULL))&0x7FFULL];//byte 6;
             else
-                return 56+Select2561[(((x>>56)&0xFFULL) + i - ((s>>40)&0xFF00ULL))&0x7FFULL];//byte 7;
+                return 56+Select256[(((x>>56)&0xFFULL) + i - ((s>>40)&0xFF00ULL))&0x7FFULL];//byte 7;
     return 0;
 }
 
 /* a sse version */
 inline uint32_t
-select64_4(uint64_t x,uint32_t i)
+select64_sse(uint64_t x,uint32_t i)
 {
     __m128i v;
     v= _mm_insert_epi64(v,x,0);
@@ -332,13 +397,12 @@ select64_4(uint64_t x,uint32_t i)
     uint32_t pos = _mm_cmpistri(range,sum8,_SIDD_UBYTE_OPS |_SIDD_CMP_RANGES|_SIDD_BIT_MASK);
 
     /* process last block */
-    return (pos<<3) + Select2561[(x>>(pos<<3)&0xFFULL) + ((i-1-csum_8[7+pos])<<8)  ];
+    return (pos<<3) + Select256[(x>>(pos<<3)&0xFFULL) + ((i-1-csum_8[7+pos])<<8)  ];
 }
 
-/* taken from Sebastiano Vigna for comparison */
-inline int select64_v(const uint64_t x, const int k)     /* k < 128; returns 72 if there are less than k ones in x. */
+/* from vigna's website */
+inline int select64_vnet(const uint64_t x, const int k)
 {
-
     // Phase 1: sums by byte
     register uint64_t byte_sums = x - ((x & 0xa * ONES_STEP_4) >> 1);
     byte_sums = (byte_sums & 3 * ONES_STEP_4) + ((byte_sums >> 2) & 3 * ONES_STEP_4);
@@ -361,6 +425,61 @@ inline int select64_v(const uint64_t x, const int k)     /* k < 128; returns 72 
     return place + (LEQ_STEP_8(bit_sums, byte_rank_step_8) * ONES_STEP_8 >> 56);
 }
 
+inline int select64_review(const uint64_t x, const int k)
+{
+    uint64_t byte_sums = x - ((x & 0xaaaaaaaaaaaaaaaaULL) >> 1);
+    byte_sums = (byte_sums & 0x3333333333333333ULL) + ((byte_sums >> 2) & 0x3333333333333333ULL);
+    byte_sums = (byte_sums + (byte_sums >> 4)) & 0x0f0f0f0f0f0f0f0fULL;
+    byte_sums *= 0x0101010101010101ULL;
+    const uint64_t k_step_8 = k * 0x0101010101010101ULL;
+    const int place = ((((k_step_8 | 0x8080808080808080ULL) - byte_sums)
+                        & 0x8080808080808080ULL) >> 7) * 0x0101010101010101ULL >> 53 & ~0x7;
+    return place + Select256[x >> place & 0xFF | k - ((byte_sums << 8) >> place & 0xFF) << 8];
+}
+
+/* from sux0.8 select.h */
+inline int select64_vsux8(const uint64_t x, const int rank)
+{
+    // Phase 1: sums by byte
+    uint64_t byte_sums = x - ((x & 0xa * ONES_STEP_4) >> 1);
+    byte_sums = (byte_sums & 3 * ONES_STEP_4) + ((byte_sums >> 2) & 3 * ONES_STEP_4);
+    byte_sums = (byte_sums + (byte_sums >> 4)) & 0x0f * ONES_STEP_8;
+    byte_sums *= ONES_STEP_8;
+    // Phase 2: compare each byte sum with rank
+    const uint64_t rank_plus_1_step_8 = (rank + 0) * ONES_STEP_8;
+    const int place = (EASY_LEQ_STEP_8(byte_sums, rank_plus_1_step_8) * ONES_STEP_8 >> 53) & ~0x7;
+
+    // Phase 3: Compute the rank in the relevant byte and use lookup table.
+    const int byte_rank = (rank + 0) - ((byte_sums << 8) >> place & 0xFF);
+    return place + Select256[ x >> place & 0xFF | byte_rank << 8 ];
+}
+
+void set_random_bits(uint64_t* data,size_t n, int seed)
+{
+    if (0 == seed) {
+        srand48((int)time(NULL));
+    } else
+        srand48(seed);
+
+    if (n) {
+        *data = (((uint64_t)lrand48()&0xFFFFULL)<<48)
+                |(((uint64_t)lrand48()&0xFFFFULL)<<32)
+                |(((uint64_t)lrand48()&0xFFFFULL)<<16)
+                |((uint64_t)lrand48()&0xFFFFULL);
+
+        for (size_t i=1; i < n; ++i) {
+            *(++data) = (((uint64_t)lrand48()&0xFFFFULL)<<48)
+                        |(((uint64_t)lrand48()&0xFFFFULL)<<32)
+                        |(((uint64_t)lrand48()&0xFFFFULL)<<16)
+                        |((uint64_t)lrand48()&0xFFFFULL);
+        }
+    }
+}
+
+inline uint64_t b1Cnt(uint64_t x)
+{
+    return __builtin_popcountll(x);
+}
 
 int main(int argc,char** argv)
 {
@@ -369,44 +488,18 @@ int main(int argc,char** argv)
     size_t sum = 0;
     size_t i;
 
-    fprintf(stdout,"select64_1(%lX,%u) = %u\n",0x123456789ABCDEF,1,select64_1(0x123456789ABCDEF,1));
-    fprintf(stdout,"select64_2(%lX,%u) = %u\n",0x123456789ABCDEF,1,select64_2(0x123456789ABCDEF,1));
-    fprintf(stdout,"select64_3(%lX,%u) = %u\n",0x123456789ABCDEF,1,select64_3(0x123456789ABCDEF,1));
-    fprintf(stdout,"select64_4(%lX,%u) = %u\n",0x123456789ABCDEF,1,select64_4(0x123456789ABCDEF,1));
-    fprintf(stdout,"bit_magic::i1BP(%lX,%u) = %u\n",0x123456789ABCDEF,1,bit_magic::i1BP(0x123456789ABCDEF,1));
-
-    fprintf(stdout,"select64_1(%lX,%u) = %u\n",0x123456789ABCDEF,22,select64_1(0x123456789ABCDEF,22));
-    fprintf(stdout,"select64_2(%lX,%u) = %u\n",0x123456789ABCDEF,22,select64_2(0x123456789ABCDEF,22));
-    fprintf(stdout,"select64_3(%lX,%u) = %u\n",0x123456789ABCDEF,22,select64_3(0x123456789ABCDEF,22));
-    fprintf(stdout,"select64_4(%lX,%u) = %u\n",0x123456789ABCDEF,22,select64_4(0x123456789ABCDEF,22));
-    fprintf(stdout,"bit_magic::i1BP(%lX,%u) = %u\n",0x123456789ABCDEF,22,bit_magic::i1BP(0x123456789ABCDEF,22));
-
-    size_t pcnt = bit_magic::b1Cnt(0x123456789ABCDEF);
-    for (i=1; i<pcnt; i++) {
-        fprintf(stdout,"%lX,%zu select64_1() = %u bit_magic::i1BP() = %u\n",0x123456789ABCDEF,i,
-                select64_3(0x123456789ABCDEF,i),bit_magic::i1BP(0x123456789ABCDEF,i));
-        fprintf(stdout,"%lX,%zu select64_2() = %u bit_magic::i1BP() = %u\n",0x123456789ABCDEF,i,
-                select64_3(0x123456789ABCDEF,i),bit_magic::i1BP(0x123456789ABCDEF,i));
-        fprintf(stdout,"%lX,%zu select64_3() = %u bit_magic::i1BP() = %u\n",0x123456789ABCDEF,i,
-                select64_3(0x123456789ABCDEF,i),bit_magic::i1BP(0x123456789ABCDEF,i));
-        fprintf(stdout,"%lX,%zu select64_4() = %u bit_magic::i1BP() = %u\n",0x123456789ABCDEF,i,
-                select64_3(0x123456789ABCDEF,i),bit_magic::i1BP(0x123456789ABCDEF,i));
-        fprintf(stdout,"%lX,%zu select64_v() = %u bit_magic::i1BP() = %u\n",0x123456789ABCDEF,i,
-                select64_3(0x123456789ABCDEF,i),bit_magic::i1BP(0x123456789ABCDEF,i));
-    }
-
-    int_vector<64> vec(m);
-    int_vector<64> ones(m);
-    int_vector<64> qrys(n);
-
-    util::set_random_bits(vec,4711);
+    uint64_t* vec = new uint64_t[m];
+    set_random_bits(vec,m,4711);
+    std::vector<uint64_t> ones(m);
+    std::vector<uint64_t> qrys(n);
 
     /* generate queries */
     for (i=0; i<n; i++) {
         qrys[i] = (rand() % m);
     }
+
     for (i=0; i<m; i++) {
-        ones[i] = 1 + (rand() % bit_magic::b1Cnt(vec[i]));
+        ones[i] = 1 + (rand() % b1Cnt(vec[i]));
     }
 
     stop_watch sw;
@@ -414,61 +507,62 @@ int main(int argc,char** argv)
     sum = 0;
     for (i=0; i<n; i++) {
         uint64_t v = vec[qrys[i]];
-        sum += bit_magic::i1BP(v, ones[qrys[i]]);
+        sum += select64_sse(v, ones[qrys[i]]);
     }
     sw.stop();
-    cout << "sum = " << sum << " #1 bit_magic::i1BP = " << sw.get_real_time() << endl;
+    std::cout << "sum = " << sum << " #1 select64_sse = " << sw.get_real_time() << endl;
 
     sw.start();
     sum = 0;
     for (i=0; i<n; i++) {
         uint64_t v = vec[qrys[i]];
-        sum += select64_1(v, ones[qrys[i]]);
+        sum += select64_sdsl(v, ones[qrys[i]]);
     }
     sw.stop();
-    cout << "sum = " << sum << " #2 select64_1 = " << sw.get_real_time() << endl;
+    std::cout << "sum = " << sum << " #2 select64_sdsl = " << sw.get_real_time() << endl;
 
     sw.start();
     sum = 0;
     for (i=0; i<n; i++) {
         uint64_t v = vec[qrys[i]];
-        sum += select64_2(v, ones[qrys[i]]);
+        sum += select64_sdslold(v, ones[qrys[i]]);
     }
     sw.stop();
-    cout << "sum = " << sum << " #3 select64_2 = " << sw.get_real_time() << endl;
+    std::cout << "sum = " << sum << " #3 select64_sdsl(old) = " << sw.get_real_time() << endl;
 
     sw.start();
     sum = 0;
     for (i=0; i<n; i++) {
         uint64_t v = vec[qrys[i]];
-        sum += select64_3(v, ones[qrys[i]]);
+        sum += select64_vnet(v, ones[qrys[i]]-1);
     }
     sw.stop();
-    cout << "sum = " << sum << " #1 select64_3 = " << sw.get_real_time() << endl;
+    std::cout << "sum = " << sum << " #4 select64_vigna(website) = " << sw.get_real_time() << endl;
 
     sw.start();
     sum = 0;
     for (i=0; i<n; i++) {
         uint64_t v = vec[qrys[i]];
-        sum += select64_4(v, ones[qrys[i]]);
+        sum += select64_review(v, ones[qrys[i]]-1);
     }
     sw.stop();
-    cout << "sum = " << sum << " #2 select64_4 = " << sw.get_real_time() << endl;
+    std::cout << "sum = " << sum << " #5 select64_review = " << sw.get_real_time() << endl;
 
     sw.start();
     sum = 0;
     for (i=0; i<n; i++) {
         uint64_t v = vec[qrys[i]];
-        sum += select64_v(v, ones[qrys[i]]);
+        sum += select64_vsux8(v, ones[qrys[i]]-1);
     }
     sw.stop();
-    cout << "sum = " << sum << " #2 select64_v = " << sw.get_real_time() << endl;
+    std::cout << "sum = " << sum << " #5 select64_vigna(sux8) = " << sw.get_real_time() << endl;
+
 
     sw.start();
     sum = 0;
     for (i=0; i<n; i++) {
         uint64_t v = vec[qrys[i]];
-        sum += bit_magic::b1Cnt(v);
+        sum += b1Cnt(v);
     }
     sw.stop();
     cout << "sum = " << sum << " b1Cnt = " << sw.get_real_time() << endl;
